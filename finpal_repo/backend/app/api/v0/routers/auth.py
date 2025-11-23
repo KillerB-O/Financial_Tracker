@@ -12,34 +12,41 @@ router = APIRouter(prefix="/auth",tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 @router.post("/register",response_model=UserRead)
-def register(user_in:UserCreate,session:Session=Depends(get_db)):
-    user=session.get(User,User.email)
-
-    if user:
-        raise HTTPException(status_code=400,detail="Email already registered")
-    user=User(
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    # check if email exists
+    q = select(User).where(User.email == user_in.email.lower())
+    exist = db.execute(q).scalar_one_or_none()
+    if exist:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # safely hash password
+    hashed_pw = get_password_hash(user_in.password)
+    
+    user = User(
         email=user_in.email.lower(),
         full_name=user_in.full_name,
-        hashed_password=get_password_hash(user_in.password)
+        hashed_password=hashed_pw,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user
+    
+    return {"msg": "User registered successfully", "email": user.email}
+
 
 @router.post("/login",response_model=Token)
 def login(form_data:OAuth2PasswordRequestForm=Depends(),db:Session=Depends(get_db)):
     #OAuth2PasswordRequestForm Provides 'username' and 'password' form 
     q=select(User).where(User.email==form_data.username.lower())
-    user=db.exec(q).first()
+    user=db.execute(q).scalar_one_or_none()
     if not user or not verify_password(form_data.password,user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid Credentials")
-    token=create_access_token(subject=user.uuid)
+    token=create_access_token(subject=user.id)
     return {"access_token":token,"token_type":"bearer"}
 
-def get_user_by_uuid(session:Session,uuid:str):
-    q=select(User).where(User.uuid==uuid)
-    return session.exec(q).first()
+def get_user_by_uuid(db:Session,u_uid:str):
+    q=select(User).where(User.id==u_uid)
+    return db.execute(q).scalars().first()
 
 async def get_current_user(token:str=Depends(oauth2_scheme),db:Session=Depends(get_db))->User:
     credential_exception=HTTPException(

@@ -18,8 +18,8 @@ class User(Base):
     id:Mapped[str]=mapped_column(
         String,primary_key=True,default=lambda:str(uuid.uuid4())
     )
-    email:Mapped[str]=mapped_column(String,primary_key=True,unique=True,index=True)
+    email:Mapped[str]=mapped_column(String,nullable=False,unique=True,index=True)
     full_name:Mapped[str]=mapped_column(String)
     hashed_password:Mapped[str]=mapped_column(String)
-    is_active:Mapped[bool]=mapped_column(Boolean,default=True)
+  
 
