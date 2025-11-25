@@ -2,7 +2,7 @@ from fastapi import APIRouter,Depends,HTTPException,status
 from fastapi.security import OAuth2PasswordRequestForm,OAuth2PasswordBearer
 from sqlmodel import Session,select
 from ....db.models import User
-from ....schemas.user import UserCreate,UserRead,Token
+from ....schemas.user import UserCreate,UserRead,Token,UserDelete
 from ....core.security import get_password_hash,verify_password,create_access_token,decode_access_token
 from ....db.session import get_db
 from ....core.config import settings
@@ -30,8 +30,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    
-    return {"msg": "User registered successfully", "email": user.email}
+    created = {"id":user.id,"email": user.email, "full_name": user.full_name, "is_active": True}
+    return created
 
 
 @router.post("/login",response_model=Token)
@@ -47,6 +47,17 @@ def login(form_data:OAuth2PasswordRequestForm=Depends(),db:Session=Depends(get_d
 def get_user_by_uuid(db:Session,u_uid:str):
     q=select(User).where(User.id==u_uid)
     return db.execute(q).scalars().first()
+
+@router.delete("/del",response_model=UserRead)
+def user_delete(user_in:UserDelete,db:Session=Depends(get_db)):
+    q=select(User).where(User.email==user_in.email)
+    user=db.execute(q).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="User Doesn't exist!")
+   
+    db.delete(user)
+    db.commit()
+    return user
 
 async def get_current_user(token:str=Depends(oauth2_scheme),db:Session=Depends(get_db))->User:
     credential_exception=HTTPException(

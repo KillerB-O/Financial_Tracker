@@ -7,6 +7,9 @@ from .config import settings
 pwd_cxt=CryptContext(schemes=["bcrypt"],deprecated='auto')
 
 def get_password_hash(password:str)->str:
+    var=  pwd_cxt.hash(password)
+    print("This is Password",password)
+    print("This is hashed",var)
     return pwd_cxt.hash(password)
 
 def verify_password(plain_password:str,hashed_password:str)->bool:
@@ -18,8 +21,8 @@ def create_access_token(subject:str,expires_delta:Optional[timedelta]=None)->str
     payload={"sub":str(subject),
              "iat":now.timestamp(),
              "exp":expire.timestamp()}
-    token=jwt.encode(payload,settings.secret_key,algorithm=[settings.algorithm])
+    token=jwt.encode(payload,settings.secret_key,algorithm=settings.algorithm)
     return token
 
 def decode_access_token(token:str)->dict:
-    return jwt.decode(token,settings.secret_key,algorithms=[settings.algorithm])
+    return jwt.decode(token,settings.secret_key,algorithms=settings.algorithm)

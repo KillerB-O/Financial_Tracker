@@ -21,5 +21,5 @@ class User(Base):
     email:Mapped[str]=mapped_column(String,nullable=False,unique=True,index=True)
     full_name:Mapped[str]=mapped_column(String)
     hashed_password:Mapped[str]=mapped_column(String)
-  
+    is_active:Mapped[bool]=mapped_column(Boolean,default=True)
 
