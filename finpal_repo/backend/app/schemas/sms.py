@@ -52,6 +52,7 @@ class SMSResponse(BaseModel):
     error_message:Optional[str]=None
     remote_parsing_request:bool=False
 
+    # parsing details (same as class ParsedTransaction data members)
     amount:Optional[float]=None
     transaction_type:Optional[TransactionType]=None
     merchant:Optional[str]=None

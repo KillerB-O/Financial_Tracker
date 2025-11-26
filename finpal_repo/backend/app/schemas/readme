@@ -1,0 +1,6 @@
+<h1>#backend/app/schemas/- Pydantic Schemas</h1>
+
+1]<h3><u>Sms Schema</u></h3>
+    Request/response models
+    Validation schemas
+    List response with pagination
