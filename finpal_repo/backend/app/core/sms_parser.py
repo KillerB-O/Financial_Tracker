@@ -3,6 +3,9 @@ from typing import Optional
 from datetime import datetime
 import httpx
 from ..schemas.sms import ParsedTransaction,TransactionType
+from .helpers.sms_helpers import SMSTextHelper  
+from .helpers.category_helpers import CategoryHelper
+
 
 class LocalSMSParser:
     """Local SMS expense parser with pattern matching"""
@@ -32,15 +35,14 @@ class LocalSMSParser:
         message_lower=message.lower()
 
         #Initialize result 
-        result=ParsedTransaction
+        result=ParsedTransaction()
         confidence=0.0
 
         #Detemine Amount
         amount=cls._extract_amount(message)
         if amount:
-            result.amount=amount
-            confidence +=0.3
-        
+            result.amount = SMSTextHelper.clean_amount(amount)
+            confidence+=0.3        
         #determine transaction time 
         trans_type=cls._extract_transtion_type(message_lower)
         if trans_type:
@@ -50,7 +52,8 @@ class LocalSMSParser:
         #determine merchant
         merchant=cls._extract_merchant(message)
         if merchant:
-            result.merchant=merchant
+            result.merchant = SMSTextHelper.normalize_merchant_name(merchant)
+            result.category = CategoryHelper.categorize(merchant, message)
             confidence+=0.2
         
         #Extract account number
@@ -62,7 +65,7 @@ class LocalSMSParser:
         #Extract balance
         balance=cls._extract_balance(message)
         if balance:
-            result.balance=balance
+            result.balance=SMSTextHelper.clean_amount(balance)
             confidence+=0.1
 
         #Categorize transaction

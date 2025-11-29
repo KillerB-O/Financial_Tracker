@@ -16,9 +16,9 @@ class TransactionType(str,Enum):
     UNKNOWN="Unknown"
 
 class SMSIngestRequest(BaseModel):
-    phone_number=str
-    message=str
-    recieved_at:Optional[datetime]=None
+    phone_number:str
+    message:str
+    received_at:Optional[datetime]=None
     consent_store_raw:bool =True
     force_remote_parse: bool=False
 
@@ -46,7 +46,7 @@ class SMSResponse(BaseModel):
     user_id:str
     phone_number:str
     raw_message:Optional[str]=None
-    recieved_at:datetime
+    received_at:datetime
     parsed_at:Optional[datetime]=None
     parsing_status:ParsingStatus
     error_message:Optional[str]=None
