@@ -1,11 +1,12 @@
 import re
 from typing import Optional
 from datetime import datetime
-import httpx
+import httpx,logging
 from ..schemas.sms import ParsedTransaction,TransactionType
 from .helpers.sms_helpers import SMSTextHelper  
 from .helpers.category_helpers import CategoryHelper
 
+logger=logging.getLogger(__name__)
 
 class LocalSMSParser:
     """Local SMS expense parser with pattern matching"""
@@ -32,104 +33,151 @@ class LocalSMSParser:
     @classmethod
     def parse(cls,message:str)->ParsedTransaction:
         """Parse SMS message for transaction details"""
+        if not isinstance(message,str):
+            logging.error(f"parse() received non-string input: {type(message)}")
+            message=str(message) if message is not None else ""
+        
+        if not message:
+            logging.warning("parse() recieved empty message")
+            return ParsedTransaction()
+        
         message_lower=message.lower()
 
         #Initialize result 
         result=ParsedTransaction()
         confidence=0.0
-
-        #Detemine Amount
-        amount=cls._extract_amount(message)
-        if amount:
-            result.amount = SMSTextHelper.clean_amount(amount)
-            confidence+=0.3        
-        #determine transaction time 
-        trans_type=cls._extract_transtion_type(message_lower)
-        if trans_type:
-            result.transaction_type=trans_type
-            confidence+=0.2
-
-        #determine merchant
-        merchant=cls._extract_merchant(message)
-        if merchant:
-            result.merchant = SMSTextHelper.normalize_merchant_name(merchant)
-            result.category = CategoryHelper.categorize(merchant, message)
-            confidence+=0.2
         
-        #Extract account number
-        account=cls._extract_account(message)
-        if account:
-            result.account_last4=account
-            confidence+=0.1
-        
-        #Extract balance
-        balance=cls._extract_balance(message)
-        if balance:
-            result.balance=SMSTextHelper.clean_amount(balance)
-            confidence+=0.1
+        try:
+            #Detemine Amount
+            amount=cls._extract_amount(message)
+            if amount:
+                result.amount = amount
+                confidence+=0.3        
+            #determine transaction time 
+            trans_type=cls._extract_transtion_type(message_lower)
+            if trans_type:
+                result.transaction_type=trans_type
+                confidence+=0.2
 
-        #Categorize transaction
-        if result.merchant:
-            result.category=cls._categorize_merchant(result.merchant)
-            confidence+=0.1
-        
-        result.confidence=min(confidence,1.0)
+            #determine merchant
+            merchant=cls._extract_merchant(message)
+            if merchant:
+                result.merchant =merchant
+                confidence+=0.2
+
+            #Extract account number
+            account=cls._extract_account(message)
+            if account:
+                result.account_last4=account
+                confidence+=0.1
+
+            #Extract balance
+            balance=cls._extract_balance(message)
+            if balance:
+                result.balance=balance
+                confidence+=0.1
+
+            #Categorize transaction
+            if result.merchant:
+                result.category=cls._categorize_merchant(result.merchant)
+                confidence+=0.1
+
+            result.confidence=min(confidence,1.0)
+        except Exception as e:
+            logger.error(f"Error parsing SMS: {str(e)}",exec_info=True)
+            pass
+
         return result
     
     @classmethod
     def _extract_amount(cls,message:str)->Optional[float]:
+
+        if not isinstance(message,str):
+            message=str(message) if message is not None else ""
+
         for pattern in cls.PATTERNS['amount']:
-            match=re.search(pattern,message,re.IGNORECASE)
-            if match:
-                amount_str=match.group(1).replace(',','')
-                try:
+            try:
+                match=re.search(pattern,message,re.IGNORECASE)
+                if match:
+                    amount_str=match.group(1).replace(',','')
                     return float(amount_str)
-                except ValueError:
-                    continue
+            except (AttributeError,ValueError,TypeError) as e:
+                logger.debug(f"Amount extraction error {e}")
+                continue
         return None
     
     @classmethod
     def _extract_transaction_type(cls,message_lower:str)->Optional[TransactionType]:
-        if re.search(cls.PATTERNS['transaction_type']['debit'],message_lower):
-            return TransactionType.DEBIT
-        elif re.search(cls.PATTERNS['transaction_type']['credit'],message_lower):
-            return TransactionType.CREDIT
+        
+        if not isinstance(message_lower,str):
+            message_lower=str(message_lower).lower() if message_lower is not None else ""
+        try:
+            if re.search(cls.PATTERNS['transaction_type']['debit'],message_lower):
+                return TransactionType.DEBIT
+            elif re.search(cls.PATTERNS['transaction_type']['credit'],message_lower):
+                return TransactionType.CREDIT
+        except (TypeError,AttributeError) as e:
+            logger.debug(f"Transaction type extraction error: {e}")
+        
         return TransactionType.UNKNOWN
         
     @classmethod
     def _extract_merchant(cls,message:str)->Optional[str]:
-        for pattern in cls.PATTERNS['merchant']:
-            match = re.search(pattern,message,re.IGNORECASE)
-            if match:
-                merchant=match.group(1).strip()
+
+        if not isinstance(message,str):
+            message=str(message) if message is not None else ""
+        try:
+            for pattern in cls.PATTERNS['merchant']:
+                match = re.search(pattern,message,re.IGNORECASE)
+                if match:
+                    merchant=match.group(1).strip()
 
                 #Clean up Commmon noise
-                merchant=re.sub(r'\s+','',merchant)
-                if len(merchant)>3:
-                    return merchant
+                    merchant=re.sub(r'\s+','',merchant)
+                    if len(merchant)>3:
+                        return merchant
+        except(AttributeError,TypeError) as e:
+            logger.debug(f"Mercahnt extraction error: {e}")
         return None
     
     @classmethod
     def _extract_account(cls,message:str)->Optional[str]:
-        match=re.search(cls.PATTERNS['account'],message,re.IGNORECASE)
-        if match:
-            return match.group(1)
+
+        if not isinstance(message.str):
+            message=str(message) if message is not None else ""
+
+        try:
+            match=re.search(cls.PATTERNS['account'],message,re.IGNORECASE)
+            if match:
+                return match.group(1)
+        except (AttributeError,TypeError) as e:
+            logger.debug(f"Accouunt extraction error : {e}")
+        
         return None
     
     @classmethod
     def _extract_balance(cls,message:str)->Optional[float]:
-        match=re.search(cls.PATTERNS['balance'],message,re.IGNORECASE)
-        if match :
-            balance_str=match.group(1).replace(',','')
-            try:
+
+        if not isinstance(message,str):
+            message=str(message) if message is not None else ""
+        
+        try:
+            match=re.search(cls.PATTERNS['balance'],message,re.IGNORECASE)
+            if match :
+                balance_str=match.group(1).replace(',','')
                 return float(balance_str)
-            except ValueError:
-                pass
+        except (AttributeError,TypeError,ValueError) as e:
+            logger.debug(f"Balance Extraction error : {e}")
+            
         return None
     
     @classmethod
     def _catogorize_merchant(cls,merchant:str)->str:
         """Simple category detection based on merchant name"""
+        
+        if not isinstance(merchant,str):
+            merchant=str(merchant) if merchant is not None else ""
+        
         merchant_lower = merchant.lower()
         
         categories = {
