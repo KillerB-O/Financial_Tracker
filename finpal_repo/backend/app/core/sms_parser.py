@@ -27,7 +27,7 @@ class LocalSMSParser:
         ],
         'account': r'(?:a\/c|account|card)[\s\*]+(?:ending\s+)?(?:x{2,4})?(\d{4})',
         'balance': r'(?:balance|bal|avbl|available)[\s:]*(?:Rs\.?|INR|₹)?\s*([0-9,]+(?:\.[0-9]{2})?)',
-        'date': r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})',
+        'date':r"(\d{1,2}[-/ ](?:\d{1,2}|[A-Za-z]{3,9})[-/ ]\d{2,4})"
     }
 
     @classmethod
@@ -81,6 +81,10 @@ class LocalSMSParser:
             if result.merchant:
                 result.category=cls._catogorize_merchant(result.merchant)
                 confidence+=0.1
+            
+            trans_date=cls._extract_trans_date(message)
+            if trans_date:
+                result.transaction_date=trans_date
 
             result.confidence=min(confidence,1.0)
         except Exception as e:
@@ -154,6 +158,44 @@ class LocalSMSParser:
             logger.debug(f"Accouunt extraction error : {e}")
         
         return None
+     
+    @classmethod
+    def _extract_trans_date(cls,message:str)->Optional[datetime]:
+
+        if not isinstance(message,str):
+            message=str(message) if message is not None else ""
+        try:
+            match=re.search(cls.PATTERNS['date'],message,re.IGNORECASE)
+            if match:
+                date_str=match.group(1).strip()
+                normalized = (
+                    date_str.replace("/", "-")
+                        .replace("  ", " ")
+                        .replace(" ", "-")
+            )
+
+            # Try multiple possible formats: numeric month and string month
+                formats = [
+                    "%d-%m-%Y",  # 25-11-2024
+                    "%d-%m-%y",  # 25-11-24
+                    "%d-%b-%Y",  # 25-Nov-2024
+                    "%d-%b-%y",  # 25-Nov-24
+                    "%d-%B-%Y",  # 25-November-2024
+                    "%d-%B-%y",  # 25-November-24
+                ]
+
+                for fmt in formats:
+                    try:
+                        return datetime.strptime(normalized, fmt)
+                    except ValueError:
+                        continue
+
+            # If none of the formats worked
+                logger.debug(f"Could not parse date '{date_str}' (normalized: '{normalized}')")
+                return None
+        except (AttributeError,TypeError) as e:
+            logger.debug(f"Transaction date extraction error:{e}")
+        return None
     
     @classmethod
     def _extract_balance(cls,message:str)->Optional[float]:
@@ -195,6 +237,8 @@ class LocalSMSParser:
                 return category
         
         return 'other'
+   
+
 
 #PennyWise Parser
 async def enqueue_remote_parse(sms, message: str):
