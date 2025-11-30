@@ -54,7 +54,7 @@ class LocalSMSParser:
                 result.amount = amount
                 confidence+=0.3        
             #determine transaction time 
-            trans_type=cls._extract_transtion_type(message_lower)
+            trans_type=cls._extract_transaction_type(message_lower)
             if trans_type:
                 result.transaction_type=trans_type
                 confidence+=0.2
@@ -79,12 +79,12 @@ class LocalSMSParser:
 
             #Categorize transaction
             if result.merchant:
-                result.category=cls._categorize_merchant(result.merchant)
+                result.category=cls._catogorize_merchant(result.merchant)
                 confidence+=0.1
 
             result.confidence=min(confidence,1.0)
         except Exception as e:
-            logger.error(f"Error parsing SMS: {str(e)}",exec_info=True)
+            logger.error(f"Error parsing SMS: {str(e)}",exc_info=True)
             pass
 
         return result
@@ -143,7 +143,7 @@ class LocalSMSParser:
     @classmethod
     def _extract_account(cls,message:str)->Optional[str]:
 
-        if not isinstance(message.str):
+        if not isinstance(message,str):
             message=str(message) if message is not None else ""
 
         try:

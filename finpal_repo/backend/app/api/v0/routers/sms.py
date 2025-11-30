@@ -69,7 +69,7 @@ async def ingest_sms(
         logger.info(f"SMS parsed successfully with confidence {parsed_data.confidence:.2f}")
         
         # If confidence is low or remote parsing forced, enqueue for remote parsing
-        if parsed_data.confidence < 0.7 or request.force_remote_parse:
+        if parsed_data.confidence < 0.7 or request.force_remote_parse:  #todo Remote parsing to pennywise.ai
             logger.info("Low confidence,enqueuing for remote parse")
             # background_tasks.add_task(enqueue_remote_parse, sms, request.message)
             
