@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional,List
 from datetime import datetime,timezone
 import uuid
+import logging
 
 
 from ....db.session import get_db
@@ -15,6 +16,7 @@ from .auth import get_current_user
 from ....core.sms_parser import LocalSMSParser, enqueue_remote_parse
 from ....db.models.sms import SMS, ParsingStatus
 
+logger=logging.getLogger(__name__)
 router = APIRouter(prefix="/sms", tags=["sms"])
 
 
@@ -38,14 +40,19 @@ async def ingest_sms(
         user_id=str(current_user.id),
         phone_number=request.phone_number,
         raw_message=request.message if request.consent_store_raw else None,
-        received_at=request.received_at or datetime.utcnow(),
+        received_at=request.received_at or datetime.now(timezone.utc),
         parsing_status=ParsingStatus.PENDING
     )
     
     # Parse locally
     try:
-        parsed_data = LocalSMSParser.parse(request.message)
+        logger.debug(f"Parsung SMS:{request.message[:50]}...")
+
+        message_to_parse=str(request.message) if request.message else ""
+
+        parsed_data = LocalSMSParser.parse(message_to_parse)
         
+        logger.debug(f"Parsed result: amount={parsed_data.amount},type={parsed_data.transaction_type}, merchant={parsed_data.merchant}")
         # Update SMS with parsed data
         sms.amount = parsed_data.amount
         sms.transaction_type = parsed_data.transaction_type
@@ -56,22 +63,32 @@ async def ingest_sms(
         sms.category = parsed_data.category
         sms.confidence = parsed_data.confidence
         
-        sms.parsed_at = datetime.utcnow()
+        sms.parsed_at = datetime.now(timezone.utc)
         sms.parsing_status = ParsingStatus.PARSED
+
+        logger.info(f"SMS parsed successfully with confidence {parsed_data.confidence:.2f}")
         
         # If confidence is low or remote parsing forced, enqueue for remote parsing
         if parsed_data.confidence < 0.7 or request.force_remote_parse:
-            background_tasks.add_task(enqueue_remote_parse, sms, request.message)
+            logger.info("Low confidence,enqueuing for remote parse")
+            # background_tasks.add_task(enqueue_remote_parse, sms, request.message)
             
     except Exception as e:
+        logger.error(f"Error parsing : {str(e)}",exc_info=True)
         sms.parsing_status = ParsingStatus.FAILED
         sms.error_message = str(e)
     
     # Save to database
-    db.add(sms)
-    db.commit()
-    db.refresh(sms)
-    
+    try:
+        db.add(sms)
+        db.commit()
+        db.refresh(sms)
+        logger.info(f"SMS saved with ID {sms.id}")
+    except Exception as e:
+        logger.error(f"Error saving SMS to database: {str(e)}",exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500,detail="Failed to save SMS") 
+      
     return sms
 
 
