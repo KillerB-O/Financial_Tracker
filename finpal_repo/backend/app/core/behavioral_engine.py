@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from typing import List, Dict, Optional
 import uuid
 from sqlalchemy.orm import Session
@@ -7,12 +7,12 @@ from sqlalchemy import func
 
 from ..db.models.challenges import Challenge, Nudge, UserStreak
 from ..db.models.sms import SMS, TransactionType
-from ..db.models.recommendation import Recommendation
+from ..db.models.recommendation import Recommendation,FinancialGoal,UserFinancialProfile
 
 
 class BehavioralEngine:
     """Behavioral coaching and habit building system"""
-    
+
     CHALLENGE_TEMPLATES = {
         'spending_limit': {
             'title': 'Weekly Spending Challenge',
@@ -66,29 +66,35 @@ class BehavioralEngine:
         
         # Analyze user's spending patterns
         transactions = self._get_recent_transactions(days=30)
+        if not transactions:
+            print(f"No transactions found for user {self.user_id}")
+            return []
+
         avg_weekly_spending = self._calculate_weekly_average(transactions)
         problem_categories = self._identify_problem_categories(transactions)
         
         challenges = []
         
         # Challenge 1: Overall spending limit (10-15% below average)
-        target = avg_weekly_spending * 0.85
-        challenges.append(self._create_challenge(
-            'spending_limit',
-            target_value=target,
-            duration_days=7
-        ))
+        if avg_weekly_spending>0:
+            target = avg_weekly_spending * 0.85
+            challenges.append(self._create_challenge(
+                'spending_limit',
+                target_value=target,
+                duration_days=7
+            ))
         
         # Challenge 2: Category-specific if problem areas exist
         if problem_categories:
             category = problem_categories[0]
             category_avg = self._get_category_average(transactions, category)
-            challenges.append(self._create_challenge(
-                'category_limit',
-                target_value=category_avg * 0.75,
-                duration_days=7,
-                category=category
-            ))
+            if category_avg>0:
+                challenges.append(self._create_challenge(
+                    'category_limit',
+                    target_value=category_avg * 0.75,
+                    duration_days=7,
+                    category=category
+                ))
         
         # Challenge 3: No-spend day (random day)
         challenges.append(self._create_challenge(
@@ -126,7 +132,7 @@ class BehavioralEngine:
         if '{category}' in description:
             description = description.format(category=category.title() if category else "")
         
-        start_date = datetime.utcnow()
+        start_date = datetime.now(timezone.utc)
         end_date = start_date + timedelta(days=duration_days)
         
         return Challenge(
@@ -149,7 +155,7 @@ class BehavioralEngine:
         active_challenges = self.db.query(Challenge).filter(
             Challenge.user_id == self.user_id,
             Challenge.status == "active",
-            Challenge.end_date >= datetime.utcnow()
+            Challenge.end_date >= datetime.now(timezone.utc)
         ).all()
         
         for challenge in active_challenges:
@@ -181,7 +187,7 @@ class BehavioralEngine:
         """Mark challenge as completed and award points"""
         
         challenge.status = "completed"
-        challenge.completed_at = datetime.utcnow()
+        challenge.completed_at = datetime.now(timezone.utc)
         
         # Update user streak
         streak = self._get_or_create_streak()
@@ -209,6 +215,11 @@ class BehavioralEngine:
         user_state = self._get_user_state()
         
         # Determine best nudge type based on state
+
+        if not user_state or user_state.get('health_score') is None:
+            print("Cannot generate nudge: Invalid user state")
+            return None
+        
         nudge_type, message = self._select_optimal_nudge(user_state)
         
         if not message:
@@ -307,11 +318,11 @@ class BehavioralEngine:
             return
         
         nudge.viewed = True
-        nudge.viewed_at = datetime.utcnow()
+        nudge.viewed_at = datetime.now(timezone.utc)
         
         if action_taken:
             nudge.action_taken = True
-            nudge.action_taken_at = datetime.utcnow()
+            nudge.action_taken_at = datetime.now(timezone.utc)
             
             # Calculate engagement score
             time_to_action = (nudge.action_taken_at - nudge.sent_at).total_seconds() / 3600
@@ -322,46 +333,51 @@ class BehavioralEngine:
     
     def _get_user_state(self) -> Dict:
         """Get current user financial state"""
+        try:
+            from ..core.recommendation_engine import FinancialRecommender
+            recommender = FinancialRecommender(self.db, self.user_id)
+            
+            scores = recommender.calculate_health_score()
+            transactions = self._get_recent_transactions(days=7)
+            
+            now = datetime.now()
+            days_into_month = now.day
+            
+            # Get spending trend
+            last_week = sum(t.amount for t in transactions if t.transaction_type == TransactionType.DEBIT)
+            all_transactions = self._get_recent_transactions(days=30)
+            avg_weekly = self._calculate_weekly_average(all_transactions)
+            spending_trend = last_week / avg_weekly if avg_weekly > 0 else 1.0
+            
+            # Get highest spending category
+            category_totals = {}
+            for t in transactions:
+                if t.category and t.transaction_type == TransactionType.DEBIT:
+                    category_totals[t.category] = category_totals.get(t.category, 0) + t.amount
+            
+            highest_category = max(category_totals.items(), key=lambda x: x[1]) if category_totals else (None, 0)
+
+            active_goals_count = self.db.query(FinancialGoal).filter(
+                FinancialGoal.user_id == self.user_id,
+                FinancialGoal.is_active == True
+            ).count()
+
+            return {
+                'health_score': scores['overall_score'],
+                'days_into_month': days_into_month,
+                'recent_spending_trend': spending_trend,
+                'highest_category': highest_category[0],
+                'category_spending': highest_category[1],
+                'has_active_goals': active_goals_count>0
+            }
+        except Exception as e:
+            print(f"Error getting user state: {e}")
+            return {}
         
-        from ..core.recommendation_engine import FinancialRecommender
-        recommender = FinancialRecommender(self.db, self.user_id)
-        
-        scores = recommender.calculate_health_score()
-        transactions = self._get_recent_transactions(days=7)
-        
-        now = datetime.now()
-        days_into_month = now.day
-        
-        # Get spending trend
-        last_week = sum(t.amount for t in transactions if t.transaction_type == TransactionType.DEBIT)
-        avg_weekly = self._calculate_weekly_average(self._get_recent_transactions(days=30))
-        spending_trend = last_week / avg_weekly if avg_weekly > 0 else 1.0
-        
-        # Get highest spending category
-        category_totals = {}
-        for t in transactions:
-            if t.category and t.transaction_type == TransactionType.DEBIT:
-                category_totals[t.category] = category_totals.get(t.category, 0) + t.amount
-        
-        highest_category = max(category_totals.items(), key=lambda x: x[1]) if category_totals else (None, 0)
-        
-        return {
-            'health_score': scores['overall_score'],
-            'days_into_month': days_into_month,
-            'recent_spending_trend': spending_trend,
-            'highest_category': highest_category[0],
-            'category_spending': highest_category[1],
-            'has_active_goals': self.db.query(func.count()).select_from(
-                self.db.query(FinancialGoal).filter(
-                    FinancialGoal.user_id == self.user_id,
-                    FinancialGoal.is_active == True
-                ).subquery()
-            ).scalar() > 0
-        }
     
     def _get_recent_transactions(self, days: int) -> List[SMS]:
         """Get recent transactions"""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         return self.db.query(SMS).filter(
             SMS.user_id == self.user_id,
             SMS.received_at >= cutoff,

@@ -1,9 +1,15 @@
 
 from sqlalchemy import String,Boolean
-from sqlalchemy.orm import Mapped,mapped_column
+from sqlalchemy.orm import Mapped,mapped_column,relationship
 from datetime import datetime,timezone
 import uuid
 from app.db.base import Base
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # only for type hints – does NOT run at import time
+    from .recommendation import Recommendation, FinancialGoal, UserFinancialProfile
+
 
 
 class User(Base):
@@ -21,3 +27,17 @@ class User(Base):
     full_name:Mapped[str]=mapped_column(String)
     hashed_password:Mapped[str]=mapped_column(String)
     is_active:Mapped[bool]=mapped_column(Boolean,default=True)
+
+    recommendations: Mapped[list["Recommendation"]] = relationship(
+        "Recommendation", back_populates="user"
+    )
+
+    financial_goals: Mapped[list["FinancialGoal"]] = relationship(
+        "FinancialGoal", back_populates="user"
+    )
+
+    financial_profile: Mapped["UserFinancialProfile"] = relationship(
+        "UserFinancialProfile",
+        back_populates="user",
+        uselist=False,
+    )

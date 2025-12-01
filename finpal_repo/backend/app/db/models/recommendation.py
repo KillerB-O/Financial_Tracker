@@ -1,73 +1,130 @@
-from sqlalchemy import Column, String, Float, DateTime, Boolean, Text, JSON, ForeignKey
-from sqlalchemy.orm import relationship
-from datetime import datetime,timezone
-from ..base import Base
+from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import String, Float, DateTime, Boolean, ForeignKey, Text,  JSON
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
+from .user import User
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .user import User
 
 class FinancialGoal(Base):
     __tablename__ = "financial_goals"
     
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    name = Column(String, nullable=False)
-    target_amount = Column(Float, nullable=False)
-    current_amount = Column(Float, default=0.0)
-    deadline = Column(DateTime, nullable=True)
-    category = Column(String, nullable=True)  # vacation, emergency, car, etc.
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    id: Mapped[str] = mapped_column(
+        String,
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
 
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # ORM relation to User
+    user: Mapped["User"] = relationship("User", back_populates="financial_goals")
+
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    target_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    current_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)  # vacation, emergency, car, etc.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
 class Recommendation(Base):
     __tablename__ = "recommendations"
-    
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id"), nullable=False, index=True
+    )
+
+    # ORM relation to User table
+    user: Mapped["User"] = relationship("User", back_populates="recommendations")
+
     # Recommendation details
-    type = Column(String, nullable=False)  # spending_optimization, goal_acceleration, etc.
-    category = Column(String, nullable=True)  # food, transport, subscriptions, etc.
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    
+    type: Mapped[str] = mapped_column(String, nullable=False)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+
     # Financial impact
-    monthly_savings = Column(Float, nullable=False)
-    annual_savings = Column(Float, nullable=False)
-    goal_impact_percentage = Column(Float, nullable=True)
-    
+    monthly_savings: Mapped[float] = mapped_column(Float, nullable=False)
+    annual_savings: Mapped[float] = mapped_column(Float, nullable=False)
+    goal_impact_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Scoring
-    confidence_score = Column(Float, nullable=False)
-    priority_score = Column(Float, nullable=False)
-    
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, nullable=False)
+
     # User interaction
-    status = Column(String, default="pending")  # pending, accepted, rejected, dismissed
-    shown_at = Column(DateTime, default=datetime.now(timezone.utc))
-    responded_at = Column(DateTime, nullable=True)
-    
+    status: Mapped[str] = mapped_column(String, default="pending")
+    shown_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     # Metadata
-    calculation_data = Column(JSON, nullable=True)  # Store calculation details
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    calculation_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class UserFinancialProfile(Base):
     __tablename__ = "user_financial_profiles"
     
-    id = Column(String, primary_key=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
-    
+    id: Mapped[str] = mapped_column(
+        String,
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("users.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # One-to-one relation with User
+    user: Mapped["User"] = relationship("User", back_populates="financial_profile")
+
     # Financial health scores
-    health_score = Column(Float, default=0.0)
-    savings_score = Column(Float, default=0.0)
-    spending_score = Column(Float, default=0.0)
-    stability_score = Column(Float, default=0.0)
-    progress_score = Column(Float, default=0.0)
+    health_score: Mapped[float] = mapped_column(Float, default=0.0)
+    savings_score: Mapped[float] = mapped_column(Float, default=0.0)
+    spending_score: Mapped[float] = mapped_column(Float, default=0.0)
+    stability_score: Mapped[float] = mapped_column(Float, default=0.0)
+    progress_score: Mapped[float] = mapped_column(Float, default=0.0)
     
     # Profile characteristics
-    monthly_income = Column(Float, nullable=True)
-    risk_tolerance = Column(Float, default=0.5)  # 0 to 1
-    behavioral_type = Column(String, nullable=True)  # planner, spender, avoider, optimizer
+    monthly_income: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_tolerance: Mapped[float] = mapped_column(Float, default=0.5)  # 0 to 1
+    behavioral_type: Mapped[str | None] = mapped_column(String, nullable=True)  # planner, spender, avoider, optimizer
     
     # Preferences
-    preferred_categories = Column(JSON, default=list)  # Categories user wants to optimize
+    preferred_categories: Mapped[list | None] = mapped_column(
+        JSON,
+        default=list,  # SQLAlchemy will treat this as a callable
+    )
     
-    updated_at = Column(DateTime, default=datetime.now(timezone.utc) ,onupdate=datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     PENNYWISE_API_URL: Optional[str] = None
     PENNYWISE_API_KEY: Optional[str] = None
     API_URL: str = "http://localhost:8000"
+    DEBUG: bool = True 
     class Config:
             env_file=".env"
             env_file_encoding="utf-8"

@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Tuple, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uuid
@@ -25,7 +25,7 @@ class FinancialRecommender:
     
     # Thresholds
     MIN_SAVINGS_THRESHOLD = 500  # Minimum monthly savings to recommend
-    MIN_CONFIDENCE = 0.7
+    MIN_CONFIDENCE = 0.5
     EXCESS_SPENDING_THRESHOLD = 0.2  # 20% above peer median
     
     # Peer data (simplified - in production, use actual anonymized peer data)
@@ -52,6 +52,16 @@ class FinancialRecommender:
         
         # Get user data
         transactions = self._get_user_transactions(days=90)
+        if not transactions:
+            print(f"No transactions found for user {self.user_id}")
+            return {
+                'overall_score': 0.0,
+                'savings_score': 0.0,
+                'spending_score': 0.0,
+                'stability_score': 0.0,
+                'progress_score': 0.0
+            }
+        
         goals = self._get_user_goals()
         
         # Calculate component scores
@@ -157,9 +167,10 @@ class FinancialRecommender:
             progress = goal.current_amount / goal.target_amount
             
             if goal.deadline:
-                days_remaining = (goal.deadline - datetime.utcnow()).days
+                deadline=self._make_aware(goal.deadline)
+                days_remaining = (deadline - datetime.now(timezone.utc)).days
                 months_remaining = max(1, days_remaining / 30)
-                required_rate = (goal.target_amount - goal.current_amount) / months_remaining
+                
                 
                 # Check if on track (with 10% buffer)
                 if progress >= 0.9 * (1 - months_remaining / 12):
@@ -177,13 +188,25 @@ class FinancialRecommender:
         """Algorithm 1: Generate spending optimization recommendations"""
         
         transactions = self._get_user_transactions(days=30)
+        if not transactions:
+            print(f"No transactions to generate suggestions for user {self.user_id}")
+            return[]
+        
         category_spending = self._categorize_spending(transactions)
+        
+        if not category_spending:
+            print(f"No categorized spending fund")
+            return[]
+        
         suggestions = []
         
         for category, user_spending in category_spending.items():
             peer_median = self.PEER_MEDIANS.get(category, 3000)
             
             # Calculate excess ratio
+            if peer_median==0:
+                continue
+            
             excess_ratio = (user_spending / peer_median) - 1
             
             # Check if spending is 20% above peers
@@ -194,15 +217,15 @@ class FinancialRecommender:
                 # Only suggest if significant and confident
                 if savings > self.MIN_SAVINGS_THRESHOLD and confidence > self.MIN_CONFIDENCE:
                     suggestion = self._create_spending_suggestion(
-                        category, savings, excess_ratio, confidence
+                        category, savings, excess_ratio, confidence,category_spending
                     )
                     suggestions.append(suggestion)
         
         return self._rank_suggestions(suggestions)
     
     def _create_spending_suggestion(
-        self, category: str, monthly_savings: float, excess_ratio: float, confidence: float
-    ) -> Recommendation:
+        self, category: str, monthly_savings: float, excess_ratio: float, confidence: float,
+                category_spending:Dict[str,float]) -> Recommendation:
         """Create a spending optimization recommendation"""
         
         annual_savings = monthly_savings * 12
@@ -212,7 +235,8 @@ class FinancialRecommender:
         goal_impact = 0
         if goals:
             primary_goal = goals[0]
-            goal_impact = (annual_savings / primary_goal.target_amount) * 100
+            if primary_goal.target_amount>0:
+                goal_impact = (annual_savings / primary_goal.target_amount) * 100
         
         title = f"Reduce {category.title()} Spending"
         description = (
@@ -227,7 +251,7 @@ class FinancialRecommender:
         recommendation = Recommendation(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
-            type=RecommendationType.SPENDING_OPTIMIZATION,
+            type=RecommendationType.SPENDING_OPTIMIZATION.value,
             category=category,
             title=title,
             description=description,
@@ -238,7 +262,7 @@ class FinancialRecommender:
             priority_score=self._calculate_priority(monthly_savings, confidence, goal_impact),
             calculation_data={
                 'excess_ratio': excess_ratio,
-                'user_spending': self._categorize_spending.get(category, 0),
+                'user_spending': category_spending.get(category, 0),
                 'peer_median': self.PEER_MEDIANS.get(category, 0)
             }
         )
@@ -248,54 +272,127 @@ class FinancialRecommender:
     # ==================== 3. GOAL ACCELERATION ====================
     
     def accelerate_goal_suggestions(self, goal_id: str) -> List[Recommendation]:
-        """Algorithm 2: Generate suggestions to accelerate goal achievement"""
+    #     """Algorithm 2: Generate suggestions to accelerate goal achievement"""
         
+    #     goal = self.db.query(FinancialGoal).filter(
+    #         FinancialGoal.id == goal_id,
+    #         FinancialGoal.user_id == self.user_id
+    #     ).first()
+        
+    #     if not goal or not goal.deadline:
+    #         return []
+        
+    #     deadline=self._make_aware(goal.deadline)
+        
+    #     # Calculate required savings rate
+    #     months_remaining = (deadline - datetime.now(timezone.utc)).days / 30
+    #     if months_remaining <= 0:
+    #         return []
+        
+    #     required_monthly = (goal.target_amount - goal.current_amount) / months_remaining
+    #     current_rate = self._estimate_current_savings_rate()
+        
+    #     shortfall = required_monthly - current_rate
+        
+    #     if shortfall <= 0:
+    #         return []  # User is on track
+        
+    #     # Find savings opportunities
+    #     opportunities = self.generate_spending_suggestions()
+        
+    #     # Filter feasible savings that cover shortfall
+    #     cumulative_savings = 0
+    #     selected_suggestions = []
+        
+    #     for opp in opportunities:
+    #         if cumulative_savings < shortfall:
+    #             selected_suggestions.append(opp)
+    #             cumulative_savings += opp.monthly_savings
+        
+    #     return selected_suggestions
+       
         goal = self.db.query(FinancialGoal).filter(
             FinancialGoal.id == goal_id,
             FinancialGoal.user_id == self.user_id
         ).first()
-        
-        if not goal or not goal.deadline:
+
+        if not goal:
+            print(f"[GOAL] No goal found for id={goal_id} user_id={self.user_id}")
             return []
-        
-        # Calculate required savings rate
-        months_remaining = (goal.deadline - datetime.utcnow()).days / 30
+
+        if not goal.deadline:
+            print(f"[GOAL] Goal {goal.id} has no deadline, cannot accelerate")
+            return []
+
+        deadline = self._make_aware(goal.deadline)
+        now = datetime.now(timezone.utc)
+
+        months_remaining = (deadline - now).days / 30
+        print(f"[GOAL] target={goal.target_amount} current={goal.current_amount} "
+              f"deadline={deadline.isoformat()} months_remaining={months_remaining}")
+
         if months_remaining <= 0:
+            print("[GOAL] Deadline is in the past or now, months_remaining <= 0")
             return []
-        
+
         required_monthly = (goal.target_amount - goal.current_amount) / months_remaining
         current_rate = self._estimate_current_savings_rate()
-        
         shortfall = required_monthly - current_rate
-        
-        if shortfall <= 0:
-            return []  # User is on track
-        
-        # Find savings opportunities
+
+        print(f"[GOAL] required_monthly={required_monthly:.2f} "
+              f"current_rate={current_rate:.2f} shortfall={shortfall:.2f}")
+
         opportunities = self.generate_spending_suggestions()
-        
-        # Filter feasible savings that cover shortfall
+        print(f"[GOAL] {len(opportunities)} spending opportunities found")
+
+        if shortfall <= 0:
+            # print("[GOAL] User is already on track (shortfall <= 0)")
+            # return []
+            print("[GOAL] User is already on track, returning top 3 opportunities")
+            top = opportunities[:3]
+
+            now = datetime.now(timezone.utc)
+            for rec in top:
+                if rec.status is None:
+                    rec.status = "pending"
+                if rec.shown_at is None:
+                    rec.shown_at = now
+
+            return top
+
+
         cumulative_savings = 0
-        selected_suggestions = []
-        
+        selected_suggestions: list[Recommendation] = []
+
         for opp in opportunities:
             if cumulative_savings < shortfall:
                 selected_suggestions.append(opp)
                 cumulative_savings += opp.monthly_savings
-        
+                print(f"[GOAL] Selected {opp.category} saving={opp.monthly_savings}, "
+                      f"cumulative_savings={cumulative_savings}")
+
+        now = datetime.now(timezone.utc)
+        for rec in selected_suggestions:
+            if rec.status is None:
+                rec.status = "pending"
+            if rec.shown_at is None:
+                rec.shown_at = now
+
+        print(f"[GOAL] Returning {len(selected_suggestions)} acceleration suggestions")
         return selected_suggestions
-    
     # ==================== 4. SUBSCRIPTION OPTIMIZATION ====================
     
     def generate_subscription_suggestions(self) -> List[Recommendation]:
         """Detect unused subscriptions"""
         
         transactions = self._get_user_transactions(days=60)
+        if not transactions:
+            return []
         
         # Identify recurring transactions (subscriptions)
         subscription_merchants = {}
         for t in transactions:
-            if t.merchant and t.transaction_type == TransactionType.DEBIT:
+          if t.transaction_type == TransactionType.DEBIT and t.category and t.category != 'income':
                 if t.merchant not in subscription_merchants:
                     subscription_merchants[t.merchant] = []
                 subscription_merchants[t.merchant].append(t)
@@ -307,20 +404,26 @@ class FinancialRecommender:
             if len(txns) >= 2:  # At least 2 transactions
                 # Check if amounts are similar (within 10%)
                 amounts = [t.amount for t in txns]
-                if np.std(amounts) / np.mean(amounts) < 0.1:
+                mean_amount=np.mean(amounts)
+                
+                if mean_amount == 0:
+                    continue
+
+                std_amount=np.std(amounts)
+                if std_amount/mean_amount<0.1:
                     # This looks like a subscription
-                    avg_amount = np.mean(amounts)
-                    
+                    avg_amount = mean_amount
+                
                     # Check if unused (no transactions in last 30 days from related categories)
                     last_txn_date = max(t.received_at for t in txns)
-                    days_since_last = (datetime.utcnow() - last_txn_date).days
-                    
+                    days_since_last = (datetime.now(timezone.utc) - last_txn_date).days
+
                     if days_since_last > 30:
                         suggestion = self._create_subscription_suggestion(
                             merchant, avg_amount, days_since_last
                         )
                         suggestions.append(suggestion)
-        
+
         return suggestions
     
     def _create_subscription_suggestion(
@@ -340,7 +443,7 @@ class FinancialRecommender:
         return Recommendation(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
-            type=RecommendationType.SUBSCRIPTION_OPTIMIZATION,
+            type=RecommendationType.SUBSCRIPTION_OPTIMIZATION.value,
             category="subscriptions",
             title=title,
             description=description,
@@ -358,7 +461,7 @@ class FinancialRecommender:
     
     def _get_user_transactions(self, days: int = 30) -> List[SMS]:
         """Get user's parsed SMS transactions"""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         return self.db.query(SMS).filter(
             SMS.user_id == self.user_id,
             SMS.received_at >= cutoff_date,
@@ -392,7 +495,7 @@ class FinancialRecommender:
         """Aggregate spending by category"""
         category_totals = {}
         for t in transactions:
-            if t.transaction_type == TransactionType.DEBIT and t.category:
+          if t.transaction_type == TransactionType.DEBIT and t.category and t.category != 'income':
                 category_totals[t.category] = category_totals.get(t.category, 0) + t.amount
         return category_totals
     
@@ -469,3 +572,11 @@ class FinancialRecommender:
         expenses = sum(t.amount for t in transactions if t.transaction_type == TransactionType.DEBIT)
         
         return max(0, income - expenses)
+
+    def _make_aware(self, dt: datetime) -> datetime:
+        """Convert naive datetime to timezone-aware UTC datetime"""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt

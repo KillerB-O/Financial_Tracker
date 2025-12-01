@@ -22,8 +22,17 @@ class LocalSMSParser:
             'credit': r'(?:credited|received|refund|deposit|credit)',
         },
         'merchant': [
-            r'(?:at|to|from)\s+([A-Z][A-Za-z0-9\s&\-]{2,40})',
-            r'(?:merchant|payee):\s*([A-Za-z0-9\s&\-]{2,40})',
+            # Pattern 1: "spent on MERCHANT on date" - NEW, FIRST PRIORITY
+            r'(?:spent|paid)\s+on\s+([A-Z][A-Z\s&\-]+?)(?:\s+on\s+\d)',
+
+            # Pattern 2: "at MERCHANT"
+            r'(?:at|to)\s+([A-Z][A-Z\s&\-]+?)(?:\s+on\s+\d|\.|,|$)',
+
+            # Pattern 3: "for MERCHANT on"
+            r'for\s+([A-Z][A-Z\s&\-]+?)(?:\s+on\s+\d)',
+
+            # Pattern 4: "on MERCHANT using"
+            r'on\s+([A-Z][A-Z\s&\-]+?)(?:\s+using)'
         ],
         'account': r'(?:a\/c|account|card)[\s\*]+(?:ending\s+)?(?:x{2,4})?(\d{4})',
         'balance': r'(?:balance|bal|avbl|available)[\s:]*(?:Rs\.?|INR|₹)?\s*([0-9,]+(?:\.[0-9]{2})?)',
@@ -59,11 +68,25 @@ class LocalSMSParser:
                 result.transaction_type=trans_type
                 confidence+=0.2
 
-            #determine merchant
-            merchant=cls._extract_merchant(message)
-            if merchant:
-                result.merchant =merchant
-                confidence+=0.2
+             # Extract merchant (for debits) or source (for credits)
+            if trans_type == TransactionType.DEBIT:
+                merchant = cls._extract_merchant(message)
+                if merchant:
+                    result.merchant = merchant
+                    confidence += 0.2
+                    # Categorize based on merchant
+                    result.category = cls._categorize_merchant(result.merchant)
+                    confidence += 0.1
+
+            elif trans_type == TransactionType.CREDIT:
+                # For credits, extract the source/reason
+                source = cls._extract_credit_source(message)
+                if source:
+                    result.merchant = source
+                    confidence += 0.2
+                # Categorize credits separately
+                result.category = cls._categorize_credit(message)
+                confidence += 0.1
 
             #Extract account number
             account=cls._extract_account(message)
@@ -77,11 +100,7 @@ class LocalSMSParser:
                 result.balance=balance
                 confidence+=0.1
 
-            #Categorize transaction
-            if result.merchant:
-                result.category=cls._catogorize_merchant(result.merchant)
-                confidence+=0.1
-            
+            #Extract transaction date
             trans_date=cls._extract_trans_date(message)
             if trans_date:
                 result.transaction_date=trans_date
@@ -135,11 +154,23 @@ class LocalSMSParser:
                 match = re.search(pattern,message,re.IGNORECASE)
                 if match:
                     merchant=match.group(1).strip()
-
-                #Clean up Commmon noise
-                    merchant=re.sub(r'\s+','',merchant)
-                    if len(merchant)>3:
-                        return merchant
+  
+                    # Clean up the merchant name
+                    # Remove dates (e.g., "on 28-Nov-24", "on 26-Nov-24")
+                    merchant = re.sub(r'\s*on\s+\d{1,2}[-/]\w{3}[-/]\d{2,4}.*', '', merchant, flags=re.IGNORECASE)
+                    
+                    # Remove "card XX1234 for" type patterns
+                    merchant = re.sub(r'card\s+[xX]{2,4}\d{4}\s+for\s+', '', merchant, flags=re.IGNORECASE)
+                    
+                    # Remove extra whitespace
+                    merchant = re.sub(r'\s+', ' ', merchant)
+                    
+                    # Remove leading/trailing junk
+                    merchant = merchant.strip()
+                    
+                    # Only return if it's a reasonable length and has letters
+                    if len(merchant) > 2 and any(c.isalpha() for c in merchant):
+                        return merchant.upper() 
         except(AttributeError,TypeError) as e:
             logger.debug(f"Mercahnt extraction error: {e}")
         return None
@@ -223,13 +254,13 @@ class LocalSMSParser:
         merchant_lower = merchant.lower()
         
         categories = {
-            'food': ['restaurant', 'cafe', 'swiggy', 'zomato', 'food', 'pizza', 'burger', 'mcdonald', 'kfc'],
-            'transport': ['uber', 'ola', 'rapido', 'metro', 'petrol', 'fuel', 'gas', 'parking'],
+            'food': ['restaurant', 'swiggy instamart','cafe', 'swiggy', 'zomato', 'food', 'pizza', 'burger', 'mcdonald', 'kfc','dominos','subway','starbucks'],
+            'transport': ['uber', 'ola', 'rapido', 'metro', 'petrol', 'fuel', 'gas', 'parking','toll','cab','taxi','auto'],
             'shopping': ['amazon', 'flipkart', 'myntra', 'mall', 'store', 'shop'],
-            'utilities': ['electricity', 'water', 'gas', 'mobile', 'recharge', 'airtel', 'jio', 'vi'],
-            'entertainment': ['netflix', 'prime', 'hotstar', 'movie', 'theatre', 'spotify', 'youtube'],
-            'groceries': ['bigbasket', 'grofers', 'blinkit', 'dmart', 'reliance', 'fresh'],
-            'health': ['pharma', 'medicine', 'hospital', 'clinic', 'apollo', 'medplus'],
+            'utilities': ['electricity', 'water', 'gas', 'mobile', 'recharge', 'airtel', 'jio', 'vi','vodaphone','broadband'],
+            'entertainment': ['netflix', 'prime', 'hotstar', 'movie', 'theatre', 'spotify', 'youtube','pvr','inox'],
+            'groceries': ['bigbasket', 'grofers', 'blinkit', 'dmart', 'reliance', 'fresh','supermarket','instamart'],
+            'health': ['pharma','pharmacy','1mg','pharmeasy', 'medicine', 'hospital', 'clinic', 'apollo', 'medplus'],
         }
         
         for category, keywords in categories.items():
@@ -237,9 +268,79 @@ class LocalSMSParser:
                 return category
         
         return 'other'
+    
+    @classmethod
+    def _extract_credit_source(cls, message: str) -> Optional[str]:
+        """
+        Extract source/reason for credit transactions
+        Examples: "Salary", "Refund from Amazon", "Transfer from John"
+        """
+        if not isinstance(message, str):
+            message = str(message) if message is not None else ""
+        
+        # Pattern 1: "- Source for month"
+        match = re.search(r'-\s*([A-Za-z\s]+)\s+for\s+\w+\s+\d{4}', message, re.IGNORECASE)
+        if match:
+            source = match.group(1).strip().title()
+            return source
+        
+        # Pattern 2: "credited - Reason"
+        match = re.search(r'credited\s*-?\s*([A-Za-z\s]+)', message, re.IGNORECASE)
+        if match:
+            source = match.group(1).strip().title()
+            # Remove common trailing words
+            source = re.sub(r'\s+(for|from|to|on)\s.*', '', source, flags=re.IGNORECASE)
+            return source
+        
+        # Pattern 3: "Refund from MERCHANT"
+        match = re.search(r'(refund|cashback|bonus)\s+from\s+([A-Za-z\s]+)', message, re.IGNORECASE)
+        if match:
+            return f"{match.group(1).title()} from {match.group(2).strip()}"
+        
+        # Pattern 4: Just look for common income keywords
+        income_keywords = {
+            'salary': 'Salary',
+            'bonus': 'Bonus',
+            'incentive': 'Incentive',
+            'reimbursement': 'Reimbursement',
+            'refund': 'Refund',
+            'cashback': 'Cashback',
+            'interest': 'Interest',
+            'dividend': 'Dividend',
+            'transfer': 'Transfer',
+        }
+        
+        message_lower = message.lower()
+        for keyword, display_name in income_keywords.items():
+            if keyword in message_lower:
+                return display_name
+        
+        return None
+    
+    @classmethod
+    def _categorize_credit(cls, message: str) -> str:
+        """
+        Categorize credit transactions (income)
+        """
+        if not isinstance(message, str):
+            message = str(message) if message is not None else ""
+        
+        message_lower = message.lower()
+        
+        # Income categories
+        if any(word in message_lower for word in ['salary', 'wages', 'payroll']):
+            return 'income'
+        elif any(word in message_lower for word in ['refund', 'return']):
+            return 'refund'
+        elif any(word in message_lower for word in ['cashback', 'reward', 'bonus']):
+            return 'cashback'
+        elif any(word in message_lower for word in ['interest', 'dividend']):
+            return 'investment'
+        elif any(word in message_lower for word in ['transfer', 'upi', 'neft', 'imps']):
+            return 'transfer'
+        else:
+            return 'income'  # Default for credits
    
-
-
 #PennyWise Parser
 async def enqueue_remote_parse(sms, message: str):
     """Send SMS to PennyWise AI for parsing"""
@@ -267,3 +368,4 @@ async def enqueue_remote_parse(sms, message: str):
                 sms.parsing_status = "remote_parsing"
     except Exception as e:
         print(f"Failed to enqueue remote parse: {e}")
+
