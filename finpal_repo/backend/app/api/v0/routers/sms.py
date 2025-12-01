@@ -62,7 +62,6 @@ async def ingest_sms(
         sms.balance = parsed_data.balance
         sms.category = parsed_data.category
         sms.confidence = parsed_data.confidence
-        
         sms.parsed_at = datetime.now(timezone.utc)
         sms.parsing_status = ParsingStatus.PARSED
 
