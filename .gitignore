@@ -182,3 +182,68 @@ cython_debug/
 
 #csv files
 .csv
+
+# Flutter/Dart/Pub related
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# Android related
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/.gradle/
+android/local.properties
+
+# iOS/Xcode related
+ios/.symlinks/
+ios/build/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Pods/
+ios/Podfile.lock
+ios/Runner.xcworkspace/
+ios/Runner/DerivedData/
+ios/Runner/GeneratedPluginRegistrant.*
+
+# macOS related
+macos/.symlinks/
+macos/.gradle/
+macos/build/
+macos/Flutter/Flutter.framework
+
+# Linux related
+linux/.gradle/
+linux/build/
+
+# Windows related
+windows/.gradle/
+windows/build/
+
+# Web related
+web/.dart_tool/
+web/generated_plugin_registrant.dart
+
+# Firebase related (optional)
+firebase_options.dart
+
+# Codegen / Local config files
+*.g.dart
+*.freezed.dart
+*.part
+*.arb
+
+# IDE related
+.idea/
+.vscode/
+*.iml
+
+# Local OS files
+.DS_Store
+Thumbs.db
+
+# Dependency files
+*.gradle
+*.properties
+*.plist
