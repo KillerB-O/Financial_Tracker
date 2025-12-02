@@ -1,0 +1,49 @@
+name: finpal
+description: Your Personal Financial Wellness Companion
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # HTTP & API
+  http: ^1.1.0
+  dio: ^5.4.0
+  
+  # SMS & Permissions
+  #       flutter_sms_inbox: ^1.0.2  # Modern, maintained SMS plugin
+  
+  sms_advanced: ^1.0.1
+  permission_handler: ^11.0.1
+  
+  
+  # State Management
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  
+  # UI Components
+  fl_chart: ^0.65.0
+  percent_indicator: ^4.2.3
+  intl: ^0.18.1
+  google_fonts: ^6.1.0
+  shimmer: ^3.0.0
+  
+  # Local Storage
+  sqflite: ^2.3.0
+  path: ^1.8.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
