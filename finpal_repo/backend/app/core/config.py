@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     class Config:
             env_file=".env"
             env_file_encoding="utf-8"
+            extra="ignore"
     
 def Settings_sqlitefile() -> str:
     # this will be called once when the module is loaded
