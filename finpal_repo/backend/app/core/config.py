@@ -14,12 +14,7 @@ class Settings(BaseSettings):
 
     secret_key:str
     algorithm:str ="HS256"
-    access_token_expire_minutes: int= 60*24*7
-
-    min_savings_threshold: float        
-    min_confidence: float              
-    excess_spending_threshold: float      
-
+    access_token_expire_minutes: int= 60*24*7 
     
     PENNYWISE_API_URL: Optional[str] = None
     PENNYWISE_API_KEY: Optional[str] = None
