@@ -5,6 +5,8 @@ from app.core.config import SQLALCHEMY_DATABASE_URL
 
 engine=create_engine(
     SQLALCHEMY_DATABASE_URL,
+    connect_args={} if not SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {"check_same_thread": False},
+    pool_pre_ping=True,
     echo=False, #debugging =false
     future=True  #SQLAlchemy 2.0
     )

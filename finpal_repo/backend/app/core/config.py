@@ -33,6 +33,9 @@ def Settings_sqlitefile() -> str:
 settings=Settings()
 
 if settings.DATABASE_URL:
-    SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+    db_url = settings.DATABASE_URL
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
+    SQLALCHEMY_DATABASE_URL = db_url
 else:
     SQLALCHEMY_DATABASE_URL = f"sqlite:///{settings.SQLITE_DB_FILE}"
